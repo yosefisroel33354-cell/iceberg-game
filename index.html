@@ -14,15 +14,26 @@
                 <span id="username">@user</span>
             </div>
             <div class="score-container">
-                <img src="https://em-content.zobj.net/source/microsoft-teams/337/snowflake_2744-fe0f.png" alt="coin" class="small-icon">
+                <span class="icon">❄️</span>
                 <h1 id="score">0</h1>
+            </div>
+            <div class="passive-income">
+                <span>🧊 / sec: </span><span id="income-val">0</span>
             </div>
         </div>
 
-        <div class="click-area">
-            <div class="iceberg" id="click-btn">
-                🧊
+        <div id="game-screen" class="screen active">
+            <div class="click-area">
+                <div class="iceberg" id="click-btn">
+                    🧊
+                </div>
             </div>
+        </div>
+
+        <div id="shop-screen" class="screen">
+            <h2>Upgrades</h2>
+            <div class="shop-items" id="shop-list">
+                </div>
         </div>
 
         <div class="footer">
@@ -32,6 +43,11 @@
                     <div class="energy-fill" id="energy-fill" style="width: 100%;"></div>
                 </div>
                 <span id="energy-val">1000/1000</span>
+            </div>
+            
+            <div class="nav-menu">
+                <button class="nav-btn active" id="btn-mine">⛏️ Mine</button>
+                <button class="nav-btn" id="btn-shop">🛒 Shop</button>
             </div>
         </div>
     </div>
