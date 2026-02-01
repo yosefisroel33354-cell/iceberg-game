@@ -79,3 +79,32 @@ body {
 /* Анимация цифр */
 .floating-text { position: absolute; color: #fff; font-weight: bold; font-size: 24px; animation: floatUp 1s ease-out forwards; pointer-events: none; }
 @keyframes floatUp { 0% { transform: translateY(0); opacity: 1; } 100% { transform: translateY(-100px); opacity: 0; } }
+
+/* --- СТИЛИ ДЛЯ УРОВНЕЙ --- */
+.level-container {
+    margin: 10px 0 20px 0;
+    width: 100%;
+}
+
+#level-name {
+    margin: 0 0 5px 0;
+    font-size: 14px;
+    color: #ffd700; /* Золотой цвет */
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.level-bar {
+    height: 6px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 3px;
+    overflow: hidden;
+    width: 100%;
+}
+
+.level-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #ffd700, #ffaa00);
+    transition: width 0.3s;
+    box-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+}

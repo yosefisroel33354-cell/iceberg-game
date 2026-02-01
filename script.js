@@ -8,6 +8,15 @@ let profitPerSec = 0;
 let clickPower = 1;
 const maxEnergy = 1000;
 
+// УРОВНИ
+const levels = [
+    { name: "Ice Cube 🧊", min: 0 },
+    { name: "Snowman ⛄", min: 5000 },
+    { name: "Polar Bear 🐻‍❄️", min: 25000 },
+    { name: "Glacier 🏔️", min: 100000 },
+    { name: "Absolute Zero 🥶", min: 1000000 }
+];
+
 // Список товаров (можно добавлять новые сюда)
 const upgrades = [
     { id: 'cursor', name: 'Reinforced Pickaxe', type: 'click', cost: 100, bonus: 1, desc: '+1 per click' },
@@ -162,11 +171,38 @@ setInterval(() => {
 
 // --- UI ФУНКЦИИ ---
 function updateUI() {
-    scoreEl.innerText = Math.floor(score); // Округляем, чтобы не было дробей
+    // 1. Обновляем счет и доход
+    scoreEl.innerText = Math.floor(score).toLocaleString(); // toLocaleString делает пробелы (1 000)
     incomeEl.innerText = profitPerSec;
+
+    // 2. Обновляем энергию
     energyValEl.innerText = `${Math.floor(energy)}/${maxEnergy}`;
     const percent = (energy / maxEnergy) * 100;
     energyFillEl.style.width = `${percent}%`;
+
+    // 3. ОБНОВЛЯЕМ УРОВЕНЬ (НОВОЕ!)
+    // Ищем текущий уровень
+    let currentLevel = levels[0];
+    let nextLevel = levels[1];
+
+    for (let i = 0; i < levels.length; i++) {
+        if (score >= levels[i].min) {
+            currentLevel = levels[i];
+            nextLevel = levels[i + 1]; // Может быть undefined, если это последний уровень
+        }
+    }
+
+    document.getElementById('level-name').innerText = currentLevel.name;
+
+    // Считаем прогресс бар уровня
+    if (nextLevel) {
+        const range = nextLevel.min - currentLevel.min; // Сколько всего очков на этом уровне
+        const progress = score - currentLevel.min;      // Сколько мы уже набрали
+        const levelPercent = (progress / range) * 100;
+        document.getElementById('level-fill').style.width = `${levelPercent}%`;
+    } else {
+        document.getElementById('level-fill').style.width = '100%'; // Максимальный уровень
+    }
 }
 
 function showFloatingText(x, y, text) {
