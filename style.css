@@ -1,0 +1,125 @@
+body {
+    background: radial-gradient(circle at center, #1b2735 0%, #090a0f 100%);
+    color: white;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    margin: 0;
+    height: 100vh;
+    overflow: hidden; /* Чтобы не скроллилось */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    user-select: none; /* Запрещаем выделение текста */
+}
+
+.game-container {
+    width: 100%;
+    max-width: 400px;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 20px;
+    box-sizing: border-box;
+}
+
+.header {
+    text-align: center;
+    margin-top: 20px;
+}
+
+#username {
+    font-size: 14px;
+    color: #88ccff;
+    opacity: 0.8;
+}
+
+.score-container {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.score-container h1 {
+    font-size: 48px;
+    margin: 0;
+    font-weight: 800;
+    text-shadow: 0 0 20px rgba(136, 204, 255, 0.5);
+}
+
+.small-icon {
+    width: 32px;
+    height: 32px;
+}
+
+.click-area {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-grow: 1; /* Занимает всё свободное место */
+}
+
+/* Наш "Айсберг" - кнопка */
+.iceberg {
+    font-size: 100px;
+    background: rgba(255, 255, 255, 0.1);
+    width: 200px;
+    height: 200px;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    cursor: pointer;
+    box-shadow: 0 0 50px rgba(0, 191, 255, 0.2);
+    transition: transform 0.1s, box-shadow 0.1s;
+    border: 2px solid rgba(136, 204, 255, 0.3);
+}
+
+.iceberg:active {
+    transform: scale(0.95);
+    box-shadow: 0 0 30px rgba(0, 191, 255, 0.5);
+    background: rgba(255, 255, 255, 0.2);
+}
+
+.footer {
+    margin-bottom: 30px;
+}
+
+.energy-bar-container {
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 15px;
+    padding: 10px 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.energy-bar {
+    height: 10px;
+    background: rgba(0, 0, 0, 0.5);
+    border-radius: 5px;
+    overflow: hidden;
+    width: 100%;
+}
+
+.energy-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #00bfff, #88ccff);
+    transition: width 0.2s;
+}
+
+/* Анимация всплывающих цифр при клике */
+.floating-text {
+    position: absolute;
+    color: #fff;
+    font-weight: bold;
+    font-size: 24px;
+    animation: floatUp 1s ease-out forwards;
+    pointer-events: none;
+}
+
+@keyframes floatUp {
+    0% { transform: translateY(0); opacity: 1; }
+    100% { transform: translateY(-100px); opacity: 0; }
+}

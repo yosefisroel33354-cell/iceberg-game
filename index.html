@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Iceberg Clicker</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+    <div class="game-container">
+        <div class="header">
+            <div class="user-info">
+                <span id="username">@user</span>
+            </div>
+            <div class="score-container">
+                <img src="https://em-content.zobj.net/source/microsoft-teams/337/snowflake_2744-fe0f.png" alt="coin" class="small-icon">
+                <h1 id="score">0</h1>
+            </div>
+        </div>
+
+        <div class="click-area">
+            <div class="iceberg" id="click-btn">
+                🧊
+            </div>
+        </div>
+
+        <div class="footer">
+            <div class="energy-bar-container">
+                <span>Energy ⚡</span>
+                <div class="energy-bar">
+                    <div class="energy-fill" id="energy-fill" style="width: 100%;"></div>
+                </div>
+                <span id="energy-val">1000/1000</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
