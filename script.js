@@ -1,61 +1,31 @@
 const tg = window.Telegram.WebApp;
 tg.expand();
 
-// --- СИСТЕМА ОТЛОВА ОШИБОК (DEBUG) ---
-window.onerror = function(msg, url, lineNo, columnNo, error) {
-    tg.showAlert(`ER: ${msg} \nLine: ${lineNo}`);
-    return false;
-};
-
-// --- НАСТРОЙКИ FIREBASE ---
-const firebaseConfig = {
-  apiKey: "AIzaSyBw5UDwHAF9DiRmyabYdZoTg-TyxNleFdc",
-  authDomain: "iceberg-game.firebaseapp.com",
-  databaseURL: "https://iceberg-game-default-rtdb.europe-west1.firebasedatabase.app",
-  projectId: "iceberg-game",
-  storageBucket: "iceberg-game.firebasestorage.app",
-  messagingSenderId: "292713776668",
-  appId: "1:292713776668:web:e57c2d40089b1a92a781d9"
-};
-
-// Проверяем, подключился ли Firebase (если нет - скажем об этом)
-try {
-    firebase.initializeApp(firebaseConfig);
-} catch (e) {
-    tg.showAlert("Firebase Error: " + e.message);
-}
-
-const db = firebase.database();
-
 // --- ЗВУКИ ---
 const bgMusic = new Audio('music.mp3');
-bgMusic.loop = true; 
-bgMusic.volume = 0.3;
-
+bgMusic.loop = true; bgMusic.volume = 0.3;
 const hitSound = new Audio('hit.mp3');
 hitSound.volume = 0.5;
-
 let isMusicPlaying = false;
 
 // --- ДАННЫЕ ИГРОКА ---
-let userId = "guest"; 
+let userId = "guest";
 if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
     userId = tg.initDataUnsafe.user.id.toString();
 }
 
-// Начальное состояние
+// Дефолтное состояние (для новичков)
 let state = {
     score: 0,
     energy: 1000,
     profitPerSec: 0,
     clickPower: 1,
     ownedUpgrades: { cursor: 0, worker: 0, drill: 0 },
-    lastLogout: Date.now()
+    lastLogout: Date.now(),
+    referrals: [] // Список друзей будем хранить тут
 };
 
 const maxEnergy = 1000;
-
-// УРОВНИ
 const levels = [
     { name: "Ice Cube 🧊", min: 0 },
     { name: "Snowman ⛄", min: 5000 },
@@ -64,14 +34,13 @@ const levels = [
     { name: "Absolute Zero 🥶", min: 1000000 }
 ];
 
-// МАГАЗИН
 const upgrades = [
     { id: 'cursor', name: 'Reinforced Pickaxe', type: 'click', cost: 100, bonus: 1, desc: '+1 per click' },
     { id: 'worker', name: 'Snow Worker', type: 'auto', cost: 500, bonus: 1, desc: '+1 🧊 / sec' },
     { id: 'drill', name: 'Ice Drill', type: 'auto', cost: 2000, bonus: 5, desc: '+5 🧊 / sec' }
 ];
 
-// ССЫЛКИ НА ЭЛЕМЕНТЫ
+// UI Элементы
 const els = {
     score: document.getElementById('score'),
     income: document.getElementById('income-val'),
@@ -94,113 +63,111 @@ const els = {
     friendsList: document.getElementById('friends-list-container')
 };
 
-// --- ЗАПУСК ---
+// --- ЗАПУСК ИГРЫ (CloudStorage) ---
 function initGame() {
     if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
-        els.username.innerText = `@${tg.initDataUnsafe.user.username}`;
+        if(els.username) els.username.innerText = `@${tg.initDataUnsafe.user.username}`;
     }
 
-    console.log("Connecting to Firebase...");
-    
-    const userRef = db.ref('users/' + userId);
+    console.log("Loading from Telegram Cloud...");
 
-    userRef.once('value').then((snapshot) => {
-        const data = snapshot.val();
-        
-        if (data) {
-            console.log("Data loaded:", data);
-            // Аккуратно объединяем данные (чтобы не сломать, если чего-то нет)
-            if(data.score !== undefined) state.score = data.score;
-            if(data.energy !== undefined) state.energy = data.energy;
-            if(data.profitPerSec !== undefined) state.profitPerSec = data.profitPerSec;
-            if(data.clickPower !== undefined) state.clickPower = data.clickPower;
-            if(data.ownedUpgrades !== undefined) state.ownedUpgrades = data.ownedUpgrades;
-            if(data.lastLogout !== undefined) state.lastLogout = data.lastLogout;
-            
-            // Оффлайн доход
-            const now = Date.now();
-            const lastTime = state.lastLogout || now;
-            const timeDiff = Math.floor((now - lastTime) / 1000);
-            
-            if (timeDiff > 10) { 
-                const recovered = timeDiff; 
-                state.energy = Math.min(state.energy + recovered, maxEnergy);
-                
-                if (state.profitPerSec > 0) {
-                    const profitSeconds = Math.min(timeDiff, 3 * 3600); // Макс 3 часа
-                    const earned = profitSeconds * state.profitPerSec;
-                    if (earned > 0) {
-                        state.score += earned;
-                        tg.showAlert(`Welcome back! 🌙 You mined ${Math.floor(earned)} ICE while sleeping.`);
-                    }
-                }
-            }
-        } else {
-            console.log("New user registered");
-            checkReferral();
+    // Читаем данные из облака Телеграма
+    tg.CloudStorage.getItem('iceberg_data', (err, value) => {
+        if (err) {
+            tg.showAlert("Storage Error: " + err);
         }
         
-        // УСПЕХ: Убираем загрузку
+        if (value) {
+            // Если данные есть - загружаем
+            try {
+                const cloudData = JSON.parse(value);
+                state = { ...state, ...cloudData };
+                
+                // Оффлайн доход
+                const now = Date.now();
+                const lastTime = state.lastLogout || now;
+                const timeDiff = Math.floor((now - lastTime) / 1000);
+                
+                if (timeDiff > 10) {
+                    const recovered = timeDiff;
+                    state.energy = Math.min(state.energy + recovered, maxEnergy);
+                    
+                    if (state.profitPerSec > 0) {
+                        const profitSeconds = Math.min(timeDiff, 3 * 3600); // Макс 3 часа
+                        const earned = profitSeconds * state.profitPerSec;
+                        if (earned > 0) {
+                            state.score += earned;
+                            tg.showAlert(`Welcome back! 🌙 You mined ${Math.floor(earned)} ICE while sleeping.`);
+                        }
+                    }
+                }
+            } catch (e) {
+                console.error("Parse error", e);
+            }
+        } else {
+            // Если данных нет - это новый игрок
+            console.log("New user");
+            checkReferral();
+        }
+
+        // Запуск
         if(els.loading) els.loading.style.display = 'none';
         updateUI();
         renderShop();
-        loadFriends();
+        renderFriends();
         startAutoSave();
-
-    }).catch(error => {
-        // ОШИБКА FIREBASE
-        console.error("Firebase Error:", error);
-        tg.showAlert("DB Error: " + error.message);
-        // Все равно пускаем в игру, но без базы
-        if(els.loading) els.loading.style.display = 'none';
-    });
-}
-
-// --- РЕФЕРАЛЫ ---
-function checkReferral() {
-    const urlParams = new URLSearchParams(window.location.search);
-    const referrerId = urlParams.get('ref');
-    
-    if (referrerId && referrerId !== userId) {
-        state.score += 2500;
-        tg.showAlert(`🎁 Invited by user ID ${referrerId}! +2500 ICE.`);
-        
-        const refLink = db.ref('users/' + referrerId + '/referrals');
-        const myName = tg.initDataUnsafe?.user?.first_name || "Unknown Player";
-        refLink.push({ id: userId, name: myName });
-    }
-}
-
-// --- ДРУЗЬЯ ---
-function loadFriends() {
-    const myRefs = db.ref('users/' + userId + '/referrals');
-    myRefs.on('value', (snapshot) => {
-        const data = snapshot.val();
-        if(els.friendsList) els.friendsList.innerHTML = '';
-        
-        if (data) {
-            Object.values(data).forEach(friend => {
-                const div = document.createElement('div');
-                div.style.padding = "10px";
-                div.style.borderBottom = "1px solid rgba(255,255,255,0.1)";
-                div.innerHTML = `👤 <b>${friend.name}</b> <span style="color:#00ff88; float:right;">+2500 🧊</span>`;
-                els.friendsList.appendChild(div);
-            });
-        } else {
-            if(els.friendsList) els.friendsList.innerHTML = '<div class="empty-state">No friends yet 😢</div>';
-        }
     });
 }
 
 // --- СОХРАНЕНИЕ ---
-function saveToCloud() {
+function saveGame() {
     state.lastLogout = Date.now();
-    db.ref('users/' + userId).update(state).catch(e => console.log(e));
+    // Сохраняем строку JSON в ключ 'iceberg_data'
+    tg.CloudStorage.setItem('iceberg_data', JSON.stringify(state), (err, saved) => {
+        if (err) console.log("Save error:", err);
+    });
 }
 
 function startAutoSave() {
-    setInterval(saveToCloud, 5000);
-    window.addEventListener('beforeunload', () => { saveToCloud(); });
+    // Телеграм ограничивает частоту записи, поэтому сохраняем реже (раз в 10 сек)
+    setInterval(saveGame, 10000);
+}
+
+// --- РЕФЕРАЛЫ (Упрощенные) ---
+/* В CloudStorage мы не можем писать данные ДРУГОМУ человеку.
+   Поэтому мы даем бонус только тому, КТО пришел.
+   А список друзей будем формировать локально (кого мы сами позвали, если бы у нас была ссылка).
+   
+   В этой версии мы даем бонус новичку. 
+*/
+function checkReferral() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const referrerId = urlParams.get('ref');
+    
+    // Проверка: мы пришли по ссылке и мы еще не получали бонус?
+    // Мы используем localStorage как метку "я уже получал бонус" на этом устройстве,
+    // чтобы не абузили.
+    if (referrerId && referrerId !== userId && !localStorage.getItem('bonus_received')) {
+        state.score += 2500;
+        localStorage.setItem('bonus_received', 'true');
+        tg.showAlert(`🎁 Invited by ID ${referrerId}! You got +2500 ICE.`);
+        saveGame();
+    }
+}
+
+function renderFriends() {
+    if(!els.friendsList) return;
+    
+    // Так как CloudStorage не позволяет видеть чужие данные,
+    // мы покажем заглушку или счетчик.
+    // В будущем для полноценного списка друзей понадобится сервер на Yandex Cloud.
+    
+    els.friendsList.innerHTML = `
+        <div style="text-align:center; padding: 20px; color: #888;">
+            <p>Cloud Sync Active ✅</p>
+            <p style="font-size: 12px;">Invites work, but friend list is temporarily hidden in Cloud Mode.</p>
+        </div>
+    `;
 }
 
 // --- ГЕЙМПЛЕЙ ---
@@ -242,9 +209,7 @@ function updateUI() {
         if (state.score >= levels[i].min) { currentLevel = levels[i]; nextLevel = levels[i + 1]; }
     }
     
-    const lvlName = document.getElementById('level-name');
-    if(lvlName) lvlName.innerText = currentLevel.name;
-    
+    if(document.getElementById('level-name')) document.getElementById('level-name').innerText = currentLevel.name;
     const lvlFill = document.getElementById('level-fill');
     if (nextLevel && lvlFill) {
         const range = nextLevel.min - currentLevel.min;
@@ -287,7 +252,7 @@ window.buyUpgrade = function(id) {
         if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
         updateUI();
         renderShop();
-        saveToCloud();
+        saveGame(); // Сохраняем сразу
     }
 };
 
@@ -320,7 +285,7 @@ if(els.music) {
     els.music.addEventListener('click', () => {
         isMusicPlaying = !isMusicPlaying;
         if (isMusicPlaying) {
-            bgMusic.play().catch(e => console.log(e));
+            bgMusic.play().catch(e => {});
             els.music.innerText = "🎵";
             els.music.style.background = "rgba(0, 255, 136, 0.2)";
         } else {
