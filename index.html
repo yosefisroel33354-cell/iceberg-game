@@ -4,14 +4,23 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Iceberg Clicker</title>
-    <link rel="stylesheet" href="style.css?v=3">
+    <link rel="stylesheet" href="style.css?v=5">
+    
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
 </head>
 <body>
     <div class="game-container">
+        
+        <div id="loading-screen" style="position:fixed; top:0; left:0; width:100%; height:100%; background:#090a0f; z-index:9999; display:flex; justify-content:center; align-items:center; flex-direction:column; color:white;">
+            <div class="loader" style="font-size: 40px; margin-bottom: 20px;">❄️</div>
+            <p>Loading Iceberg...</p>
+        </div>
+
         <div class="header">
             <button id="btn-music" class="music-btn">🔇</button>
-            
             <div class="user-info">
                 <span id="username">@user</span>
             </div>
@@ -53,8 +62,9 @@
             </div>
             <div class="friends-list">
                 <h3>Your Friends</h3>
-                <p style="color: #aaa; font-size: 12px;">List refreshes after restart</p>
-                <div class="empty-state">No friends yet 😢</div>
+                <div id="friends-list-container">
+                    <div class="empty-state">Loading...</div>
+                </div>
             </div>
         </div>
 
