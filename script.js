@@ -1,11 +1,16 @@
 const tg = window.Telegram.WebApp;
 tg.expand();
 
+// --- СИСТЕМА ОТЛОВА ОШИБОК (DEBUG) ---
+window.onerror = function(msg, url, lineNo, columnNo, error) {
+    tg.showAlert(`ER: ${msg} \nLine: ${lineNo}`);
+    return false;
+};
+
 // --- НАСТРОЙКИ FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyBw5UDwHAF9DiRmyabYdZoTg-TyxNleFdc",
   authDomain: "iceberg-game.firebaseapp.com",
-  // ВОТ ТВОЯ ССЫЛКА, Я ЕЕ ВСТАВИЛ:
   databaseURL: "https://iceberg-game-default-rtdb.europe-west1.firebasedatabase.app",
   projectId: "iceberg-game",
   storageBucket: "iceberg-game.firebasestorage.app",
@@ -13,8 +18,13 @@ const firebaseConfig = {
   appId: "1:292713776668:web:e57c2d40089b1a92a781d9"
 };
 
-// Инициализация Firebase
-firebase.initializeApp(firebaseConfig);
+// Проверяем, подключился ли Firebase (если нет - скажем об этом)
+try {
+    firebase.initializeApp(firebaseConfig);
+} catch (e) {
+    tg.showAlert("Firebase Error: " + e.message);
+}
+
 const db = firebase.database();
 
 // --- ЗВУКИ ---
@@ -27,7 +37,7 @@ hitSound.volume = 0.5;
 
 let isMusicPlaying = false;
 
-// --- ДАННЫЕ ИГРОКА (По умолчанию) ---
+// --- ДАННЫЕ ИГРОКА ---
 let userId = "guest"; 
 if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
     userId = tg.initDataUnsafe.user.id.toString();
@@ -98,11 +108,16 @@ function initGame() {
         const data = snapshot.val();
         
         if (data) {
-            // Данные есть
             console.log("Data loaded:", data);
-            state = { ...state, ...data };
+            // Аккуратно объединяем данные (чтобы не сломать, если чего-то нет)
+            if(data.score !== undefined) state.score = data.score;
+            if(data.energy !== undefined) state.energy = data.energy;
+            if(data.profitPerSec !== undefined) state.profitPerSec = data.profitPerSec;
+            if(data.clickPower !== undefined) state.clickPower = data.clickPower;
+            if(data.ownedUpgrades !== undefined) state.ownedUpgrades = data.ownedUpgrades;
+            if(data.lastLogout !== undefined) state.lastLogout = data.lastLogout;
             
-            // Оффлайн доход и энергия
+            // Оффлайн доход
             const now = Date.now();
             const lastTime = state.lastLogout || now;
             const timeDiff = Math.floor((now - lastTime) / 1000);
@@ -112,7 +127,7 @@ function initGame() {
                 state.energy = Math.min(state.energy + recovered, maxEnergy);
                 
                 if (state.profitPerSec > 0) {
-                    const profitSeconds = Math.min(timeDiff, 3 * 3600);
+                    const profitSeconds = Math.min(timeDiff, 3 * 3600); // Макс 3 часа
                     const earned = profitSeconds * state.profitPerSec;
                     if (earned > 0) {
                         state.score += earned;
@@ -121,19 +136,23 @@ function initGame() {
                 }
             }
         } else {
-            // Новый игрок
             console.log("New user registered");
             checkReferral();
         }
         
-        els.loading.style.display = 'none';
+        // УСПЕХ: Убираем загрузку
+        if(els.loading) els.loading.style.display = 'none';
         updateUI();
         renderShop();
         loadFriends();
         startAutoSave();
+
     }).catch(error => {
+        // ОШИБКА FIREBASE
         console.error("Firebase Error:", error);
-        els.loading.innerText = "Error loading data. Check console.";
+        tg.showAlert("DB Error: " + error.message);
+        // Все равно пускаем в игру, но без базы
+        if(els.loading) els.loading.style.display = 'none';
     });
 }
 
@@ -157,7 +176,8 @@ function loadFriends() {
     const myRefs = db.ref('users/' + userId + '/referrals');
     myRefs.on('value', (snapshot) => {
         const data = snapshot.val();
-        els.friendsList.innerHTML = '';
+        if(els.friendsList) els.friendsList.innerHTML = '';
+        
         if (data) {
             Object.values(data).forEach(friend => {
                 const div = document.createElement('div');
@@ -167,7 +187,7 @@ function loadFriends() {
                 els.friendsList.appendChild(div);
             });
         } else {
-            els.friendsList.innerHTML = '<div class="empty-state">No friends yet 😢</div>';
+            if(els.friendsList) els.friendsList.innerHTML = '<div class="empty-state">No friends yet 😢</div>';
         }
     });
 }
@@ -175,7 +195,7 @@ function loadFriends() {
 // --- СОХРАНЕНИЕ ---
 function saveToCloud() {
     state.lastLogout = Date.now();
-    db.ref('users/' + userId).update(state);
+    db.ref('users/' + userId).update(state).catch(e => console.log(e));
 }
 
 function startAutoSave() {
@@ -184,21 +204,23 @@ function startAutoSave() {
 }
 
 // --- ГЕЙМПЛЕЙ ---
-document.getElementById('click-btn').addEventListener('click', (e) => {
-    if (state.energy >= state.clickPower) {
-        state.score += state.clickPower;
-        state.energy -= state.clickPower;
-        
-        if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-        if (isMusicPlaying) {
-             const soundClone = hitSound.cloneNode();
-             soundClone.play();
-        }
+if(document.getElementById('click-btn')) {
+    document.getElementById('click-btn').addEventListener('click', (e) => {
+        if (state.energy >= state.clickPower) {
+            state.score += state.clickPower;
+            state.energy -= state.clickPower;
+            
+            if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
+            if (isMusicPlaying) {
+                const soundClone = hitSound.cloneNode();
+                soundClone.play().catch(e => {});
+            }
 
-        updateUI();
-        showFloatingText(e.clientX, e.clientY, `+${state.clickPower}`);
-    }
-});
+            updateUI();
+            showFloatingText(e.clientX, e.clientY, `+${state.clickPower}`);
+        }
+    });
+}
 
 setInterval(() => {
     let changed = false;
@@ -209,28 +231,32 @@ setInterval(() => {
 
 // --- ИНТЕРФЕЙС ---
 function updateUI() {
-    els.score.innerText = Math.floor(state.score).toLocaleString();
-    els.income.innerText = state.profitPerSec;
-    els.energyVal.innerText = `${Math.floor(state.energy)}/${maxEnergy}`;
-    els.energyFill.style.width = `${(state.energy / maxEnergy) * 100}%`;
+    if(els.score) els.score.innerText = Math.floor(state.score).toLocaleString();
+    if(els.income) els.income.innerText = state.profitPerSec;
+    if(els.energyVal) els.energyVal.innerText = `${Math.floor(state.energy)}/${maxEnergy}`;
+    if(els.energyFill) els.energyFill.style.width = `${(state.energy / maxEnergy) * 100}%`;
 
     let currentLevel = levels[0];
     let nextLevel = levels[1];
     for (let i = 0; i < levels.length; i++) {
         if (state.score >= levels[i].min) { currentLevel = levels[i]; nextLevel = levels[i + 1]; }
     }
-    document.getElementById('level-name').innerText = currentLevel.name;
     
-    if (nextLevel) {
+    const lvlName = document.getElementById('level-name');
+    if(lvlName) lvlName.innerText = currentLevel.name;
+    
+    const lvlFill = document.getElementById('level-fill');
+    if (nextLevel && lvlFill) {
         const range = nextLevel.min - currentLevel.min;
         const progress = state.score - currentLevel.min;
-        document.getElementById('level-fill').style.width = `${(progress / range) * 100}%`;
-    } else {
-        document.getElementById('level-fill').style.width = '100%';
+        lvlFill.style.width = `${(progress / range) * 100}%`;
+    } else if (lvlFill) {
+        lvlFill.style.width = '100%';
     }
 }
 
 function renderShop() {
+    if(!els.shopList) return;
     els.shopList.innerHTML = '';
     upgrades.forEach(item => {
         const count = state.ownedUpgrades[item.id] || 0;
@@ -276,11 +302,11 @@ function checkAffordable() {
 
 window.switchScreen = function(name) {
     for (let k in els.screens) {
-        els.screens[k].classList.remove('active');
-        els.btns[k].classList.remove('active');
+        if(els.screens[k]) els.screens[k].classList.remove('active');
+        if(els.btns[k]) els.btns[k].classList.remove('active');
     }
-    els.screens[name].classList.add('active');
-    els.btns[name].classList.add('active');
+    if(els.screens[name]) els.screens[name].classList.add('active');
+    if(els.btns[name]) els.btns[name].classList.add('active');
 }
 
 window.inviteFriend = function() {
@@ -290,18 +316,20 @@ window.inviteFriend = function() {
     tg.openTelegramLink(url);
 }
 
-els.music.addEventListener('click', () => {
-    isMusicPlaying = !isMusicPlaying;
-    if (isMusicPlaying) {
-        bgMusic.play().catch(e => console.log(e));
-        els.music.innerText = "🎵";
-        els.music.style.background = "rgba(0, 255, 136, 0.2)";
-    } else {
-        bgMusic.pause();
-        els.music.innerText = "🔇";
-        els.music.style.background = "rgba(255, 255, 255, 0.1)";
-    }
-});
+if(els.music) {
+    els.music.addEventListener('click', () => {
+        isMusicPlaying = !isMusicPlaying;
+        if (isMusicPlaying) {
+            bgMusic.play().catch(e => console.log(e));
+            els.music.innerText = "🎵";
+            els.music.style.background = "rgba(0, 255, 136, 0.2)";
+        } else {
+            bgMusic.pause();
+            els.music.innerText = "🔇";
+            els.music.style.background = "rgba(255, 255, 255, 0.1)";
+        }
+    });
+}
 
 function showFloatingText(x, y, text) {
     const el = document.createElement('div');
@@ -313,4 +341,5 @@ function showFloatingText(x, y, text) {
     setTimeout(() => el.remove(), 1000);
 }
 
+// Запуск
 initGame();
