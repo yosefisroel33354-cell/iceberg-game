@@ -15,7 +15,7 @@ bot.start((ctx) => {
         reply_markup: {
             inline_keyboard: [
                 [{ text: "Start Mining $ICE 🧊", web_app: { url: webAppUrl } }],
-                [{ text: "Join Community 📢", url: 'https://t.me/telegram' }] // Сюда потом вставим твой канал
+[{ text: "Join Community 📢", url: 'https://t.me/iceberg_community_global' }]
             ]
         }
     });
