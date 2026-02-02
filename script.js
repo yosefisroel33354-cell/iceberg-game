@@ -17,17 +17,15 @@ const levels = [
     { name: "Absolute Zero 🥶", min: 1000000 }
 ];
 
-// Список товаров (можно добавлять новые сюда)
+// ТОВАРЫ
 const upgrades = [
     { id: 'cursor', name: 'Reinforced Pickaxe', type: 'click', cost: 100, bonus: 1, desc: '+1 per click' },
     { id: 'worker', name: 'Snow Worker', type: 'auto', cost: 500, bonus: 1, desc: '+1 🧊 / sec' },
     { id: 'drill', name: 'Ice Drill', type: 'auto', cost: 2000, bonus: 5, desc: '+5 🧊 / sec' }
 ];
-
-// Состояние покупок (сколько чего купили)
 let ownedUpgrades = { cursor: 0, worker: 0, drill: 0 };
 
-// --- ЭЛЕМЕНТЫ ---
+// ЭЛЕМЕНТЫ
 const scoreEl = document.getElementById('score');
 const incomeEl = document.getElementById('income-val');
 const energyValEl = document.getElementById('energy-val');
@@ -36,23 +34,38 @@ const clickBtn = document.getElementById('click-btn');
 const usernameEl = document.getElementById('username');
 const shopListEl = document.getElementById('shop-list');
 
-// Меню
-const btnMine = document.getElementById('btn-mine');
-const btnShop = document.getElementById('btn-shop');
-const screenGame = document.getElementById('game-screen');
-const screenShop = document.getElementById('shop-screen');
+// ЭКРАНЫ
+const screens = {
+    mine: document.getElementById('game-screen'),
+    shop: document.getElementById('shop-screen'),
+    friends: document.getElementById('friends-screen')
+};
+const btns = {
+    mine: document.getElementById('btn-mine'),
+    shop: document.getElementById('btn-shop'),
+    friends: document.getElementById('btn-friends')
+};
 
 // --- ЗАГРУЗКА ---
 if (localStorage.getItem('iceberg_save')) {
     const save = JSON.parse(localStorage.getItem('iceberg_save'));
-    score = save.score;
-    energy = save.energy;
+    score = save.score || 0;
+    energy = save.energy || 1000;
     profitPerSec = save.profitPerSec || 0;
     clickPower = save.clickPower || 1;
     if (save.owned) ownedUpgrades = save.owned;
 }
 
-// Показываем юзернейм
+// ПРОВЕРКА РЕФЕРАЛОВ (БОНУС 2500)
+const urlParams = new URLSearchParams(window.location.search);
+const referrerId = urlParams.get('ref');
+if (referrerId && !localStorage.getItem('ref_bonus')) {
+    score += 2500;
+    localStorage.setItem('ref_bonus', 'true');
+    tg.showAlert(`🎁 You were invited by user ${referrerId}! +2500 ICE`);
+}
+
+// ЮЗЕРНЕЙМ
 if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
     usernameEl.innerText = `@${tg.initDataUnsafe.user.username}`;
 }
@@ -60,7 +73,7 @@ if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
 updateUI();
 renderShop();
 
-// --- КЛИК ---
+// --- ИГРОВАЯ ЛОГИКА ---
 clickBtn.addEventListener('click', (e) => {
     if (energy >= clickPower) {
         score += clickPower;
@@ -75,31 +88,36 @@ clickBtn.addEventListener('click', (e) => {
 });
 
 // --- НАВИГАЦИЯ ---
-btnMine.addEventListener('click', () => switchScreen('mine'));
-btnShop.addEventListener('click', () => switchScreen('shop'));
-
-function switchScreen(screen) {
-    if (screen === 'mine') {
-        screenGame.classList.add('active');
-        screenShop.classList.remove('active');
-        btnMine.classList.add('active');
-        btnShop.classList.remove('active');
-    } else {
-        screenGame.classList.remove('active');
-        screenShop.classList.add('active');
-        btnMine.classList.remove('active');
-        btnShop.classList.add('active');
+window.switchScreen = function(screenName) {
+    // Скрываем все экраны
+    for (let key in screens) {
+        screens[key].classList.remove('active');
+        btns[key].classList.remove('active');
     }
+    // Показываем нужный
+    screens[screenName].classList.add('active');
+    btns[screenName].classList.add('active');
 }
 
-// --- МАГАЗИН ---
+// --- ПРИГЛАШЕНИЕ ДРУГА ---
+window.inviteFriend = function() {
+    const myId = tg.initDataUnsafe?.user?.id;
+    if (!myId) {
+        tg.showAlert("Play from Telegram to invite friends!");
+        return;
+    }
+    const inviteLink = `https://t.me/IcebergGame_bot?start=${myId}`;
+    const text = `Join me in Iceberg! ❄️ Mining Bitcoin on ice. Get +2500 ICE bonus!`;
+    const url = `https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent(text)}`;
+    tg.openTelegramLink(url);
+}
+
+// --- МАГАЗИН И ОБНОВЛЕНИЯ ---
 function renderShop() {
     shopListEl.innerHTML = '';
     upgrades.forEach(item => {
-        // Рассчитываем цену: базовая цена * (1.5 ^ количество купленных)
         const count = ownedUpgrades[item.id] || 0;
         const currentCost = Math.floor(item.cost * Math.pow(1.5, count));
-
         const div = document.createElement('div');
         div.className = 'shop-item';
         div.innerHTML = `
@@ -118,16 +136,12 @@ window.buyUpgrade = function(id) {
     const item = upgrades.find(u => u.id === id);
     const count = ownedUpgrades[id] || 0;
     const currentCost = Math.floor(item.cost * Math.pow(1.5, count));
-
     if (score >= currentCost) {
         score -= currentCost;
         ownedUpgrades[id]++;
-        
         if (item.type === 'click') clickPower += item.bonus;
         if (item.type === 'auto') profitPerSec += item.bonus;
-
         if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-        
         updateUI();
         renderShop();
     }
@@ -142,66 +156,40 @@ function checkAffordable() {
     });
 }
 
-// --- ЦИКЛ ИГРЫ (Каждую секунду) ---
+// --- ЦИКЛ ---
 setInterval(() => {
-    // Авто-доход
-    if (profitPerSec > 0) {
-        score += profitPerSec;
-        updateUI();
-    }
-    // Энергия
-    if (energy < maxEnergy) {
-        energy++;
-        updateUI(); // Обновляем полоску
-    }
-    checkAffordable(); // Проверяем, можем ли купить что-то
+    if (profitPerSec > 0) { score += profitPerSec; updateUI(); }
+    if (energy < maxEnergy) { energy++; updateUI(); }
+    checkAffordable();
 }, 1000);
 
-// --- СОХРАНЕНИЕ (Каждые 5 сек) ---
 setInterval(() => {
-    const save = {
-        score: score,
-        energy: energy,
-        profitPerSec: profitPerSec,
-        clickPower: clickPower,
-        owned: ownedUpgrades
-    };
+    const save = { score, energy, profitPerSec, clickPower, owned: ownedUpgrades };
     localStorage.setItem('iceberg_save', JSON.stringify(save));
 }, 5000);
 
-// --- UI ФУНКЦИИ ---
 function updateUI() {
-    // 1. Обновляем счет и доход
-    scoreEl.innerText = Math.floor(score).toLocaleString(); // toLocaleString делает пробелы (1 000)
+    scoreEl.innerText = Math.floor(score).toLocaleString();
     incomeEl.innerText = profitPerSec;
-
-    // 2. Обновляем энергию
     energyValEl.innerText = `${Math.floor(energy)}/${maxEnergy}`;
-    const percent = (energy / maxEnergy) * 100;
-    energyFillEl.style.width = `${percent}%`;
+    energyFillEl.style.width = `${(energy / maxEnergy) * 100}%`;
 
-    // 3. ОБНОВЛЯЕМ УРОВЕНЬ (НОВОЕ!)
-    // Ищем текущий уровень
+    // Уровни
     let currentLevel = levels[0];
     let nextLevel = levels[1];
-
     for (let i = 0; i < levels.length; i++) {
         if (score >= levels[i].min) {
             currentLevel = levels[i];
-            nextLevel = levels[i + 1]; // Может быть undefined, если это последний уровень
+            nextLevel = levels[i + 1];
         }
     }
-
     document.getElementById('level-name').innerText = currentLevel.name;
-
-    // Считаем прогресс бар уровня
     if (nextLevel) {
-        const range = nextLevel.min - currentLevel.min; // Сколько всего очков на этом уровне
-        const progress = score - currentLevel.min;      // Сколько мы уже набрали
-        const levelPercent = (progress / range) * 100;
-        document.getElementById('level-fill').style.width = `${levelPercent}%`;
+        const range = nextLevel.min - currentLevel.min;
+        const progress = score - currentLevel.min;
+        document.getElementById('level-fill').style.width = `${(progress / range) * 100}%`;
     } else {
-        document.getElementById('level-fill').style.width = '100%'; // Максимальный уровень
+        document.getElementById('level-fill').style.width = '100%';
     }
 }
 
@@ -209,8 +197,7 @@ function showFloatingText(x, y, text) {
     const el = document.createElement('div');
     el.innerText = text;
     el.className = 'floating-text';
-    const randomX = (Math.random() - 0.5) * 40; 
-    el.style.left = `${x + randomX}px`;
+    el.style.left = `${x + (Math.random() - 0.5) * 40}px`;
     el.style.top = `${y}px`;
     document.body.appendChild(el);
     setTimeout(() => el.remove(), 1000);

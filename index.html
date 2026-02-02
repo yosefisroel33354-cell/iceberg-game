@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>Iceberg Clicker</title>
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=3">
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
@@ -17,12 +17,14 @@
                 <span class="icon">❄️</span>
                 <h1 id="score">0</h1>
             </div>
+            
             <div class="level-container">
-    <h3 id="level-name">Ice Cube 🧊</h3>
-    <div class="level-bar">
-        <div class="level-fill" id="level-fill" style="width: 0%;"></div>
-    </div>
-</div>
+                <h3 id="level-name">Ice Cube 🧊</h3>
+                <div class="level-bar">
+                    <div class="level-fill" id="level-fill" style="width: 0%;"></div>
+                </div>
+            </div>
+
             <div class="passive-income">
                 <span>🧊 / sec: </span><span id="income-val">0</span>
             </div>
@@ -38,8 +40,20 @@
 
         <div id="shop-screen" class="screen">
             <h2>Upgrades</h2>
-            <div class="shop-items" id="shop-list">
-                </div>
+            <div class="shop-items" id="shop-list"></div>
+        </div>
+
+        <div id="friends-screen" class="screen">
+            <h2>Invite Friends</h2>
+            <div class="invite-card">
+                <p>Invite a friend and get <br> <span style="color: #ffd700;">+2500 🧊</span> for each!</p>
+                <button class="action-btn" onclick="inviteFriend()">Invite Friend 📨</button>
+            </div>
+            <div class="friends-list">
+                <h3>Your Friends</h3>
+                <p style="color: #aaa; font-size: 12px;">List refreshes after restart</p>
+                <div class="empty-state">No friends yet 😢</div>
+            </div>
         </div>
 
         <div class="footer">
@@ -52,8 +66,9 @@
             </div>
             
             <div class="nav-menu">
-                <button class="nav-btn active" id="btn-mine">⛏️ Mine</button>
-                <button class="nav-btn" id="btn-shop">🛒 Shop</button>
+                <button class="nav-btn active" id="btn-mine" onclick="switchScreen('mine')">⛏️ Mine</button>
+                <button class="nav-btn" id="btn-shop" onclick="switchScreen('shop')">🛒 Shop</button>
+                <button class="nav-btn" id="btn-friends" onclick="switchScreen('friends')">👥 Friends</button>
             </div>
         </div>
     </div>
