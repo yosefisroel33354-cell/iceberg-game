@@ -1,25 +1,50 @@
 const tg = window.Telegram.WebApp;
-tg.expand(); // Раскрываем на весь экран
+tg.expand();
+
+// --- НАСТРОЙКИ FIREBASE (ТВОИ КЛЮЧИ) ---
+const firebaseConfig = {
+  apiKey: "AIzaSyBw5UDwHAF9DiRmyabYdZoTg-TyxNleFdc",
+  authDomain: "iceberg-game.firebaseapp.com",
+  databaseURL: "https://iceberg-game-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "iceberg-game",
+  storageBucket: "iceberg-game.firebasestorage.app",
+  messagingSenderId: "292713776668",
+  appId: "1:292713776668:web:e57c2d40089b1a92a781d9"
+};
+
+// Инициализация Firebase (через подключенные в HTML скрипты)
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
 
 // --- ЗВУКИ ---
-// Убедись, что файлы music.mp3 и hit.mp3 лежат в папке
 const bgMusic = new Audio('music.mp3');
-bgMusic.loop = true; // Зацикливаем музыку
-bgMusic.volume = 0.3; // Громкость 30%
+bgMusic.loop = true; 
+bgMusic.volume = 0.3;
 
 const hitSound = new Audio('hit.mp3');
-hitSound.volume = 0.5; // Громкость клика
+hitSound.volume = 0.5;
 
 let isMusicPlaying = false;
 
-// --- ДАННЫЕ ИГРЫ ---
-let score = 0;
-let energy = 1000;
-let profitPerSec = 0;
-let clickPower = 1;
+// --- ДАННЫЕ ИГРОКА (По умолчанию) ---
+let userId = "guest"; 
+if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+    userId = tg.initDataUnsafe.user.id.toString();
+}
+
+// Начальное состояние (если игрок новый)
+let state = {
+    score: 0,
+    energy: 1000,
+    profitPerSec: 0,
+    clickPower: 1,
+    ownedUpgrades: { cursor: 0, worker: 0, drill: 0 },
+    lastLogout: Date.now()
+};
+
 const maxEnergy = 1000;
 
-// УРОВНИ (Ранги)
+// УРОВНИ
 const levels = [
     { name: "Ice Cube 🧊", min: 0 },
     { name: "Snowman ⛄", min: 5000 },
@@ -28,137 +53,217 @@ const levels = [
     { name: "Absolute Zero 🥶", min: 1000000 }
 ];
 
-// ТОВАРЫ В МАГАЗИНЕ
+// МАГАЗИН
 const upgrades = [
     { id: 'cursor', name: 'Reinforced Pickaxe', type: 'click', cost: 100, bonus: 1, desc: '+1 per click' },
     { id: 'worker', name: 'Snow Worker', type: 'auto', cost: 500, bonus: 1, desc: '+1 🧊 / sec' },
     { id: 'drill', name: 'Ice Drill', type: 'auto', cost: 2000, bonus: 5, desc: '+5 🧊 / sec' }
 ];
 
-// Купленные товары
-let ownedUpgrades = { cursor: 0, worker: 0, drill: 0 };
-
-// --- ЭЛЕМЕНТЫ ИНТЕРФЕЙСА ---
-const scoreEl = document.getElementById('score');
-const incomeEl = document.getElementById('income-val');
-const energyValEl = document.getElementById('energy-val');
-const energyFillEl = document.getElementById('energy-fill');
-const clickBtn = document.getElementById('click-btn');
-const usernameEl = document.getElementById('username');
-const shopListEl = document.getElementById('shop-list');
-const btnMusic = document.getElementById('btn-music');
-
-// ЭКРАНЫ
-const screens = {
-    mine: document.getElementById('game-screen'),
-    shop: document.getElementById('shop-screen'),
-    friends: document.getElementById('friends-screen')
-};
-const btns = {
-    mine: document.getElementById('btn-mine'),
-    shop: document.getElementById('btn-shop'),
-    friends: document.getElementById('btn-friends')
+// ССЫЛКИ НА HTML ЭЛЕМЕНТЫ
+const els = {
+    score: document.getElementById('score'),
+    income: document.getElementById('income-val'),
+    energyVal: document.getElementById('energy-val'),
+    energyFill: document.getElementById('energy-fill'),
+    username: document.getElementById('username'),
+    shopList: document.getElementById('shop-list'),
+    loading: document.getElementById('loading-screen'),
+    music: document.getElementById('btn-music'),
+    screens: {
+        mine: document.getElementById('game-screen'),
+        shop: document.getElementById('shop-screen'),
+        friends: document.getElementById('friends-screen')
+    },
+    btns: {
+        mine: document.getElementById('btn-mine'),
+        shop: document.getElementById('btn-shop'),
+        friends: document.getElementById('btn-friends')
+    },
+    friendsList: document.getElementById('friends-list-container')
 };
 
-// --- ЗАГРУЗКА СОХРАНЕНИЯ ---
-if (localStorage.getItem('iceberg_save')) {
-    const save = JSON.parse(localStorage.getItem('iceberg_save'));
-    score = save.score || 0;
-    energy = save.energy || 1000;
-    profitPerSec = save.profitPerSec || 0;
-    clickPower = save.clickPower || 1;
-    if (save.owned) ownedUpgrades = save.owned;
-}
+// --- ГЛАВНАЯ ФУНКЦИЯ ЗАПУСКА ---
+function initGame() {
+    if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+        els.username.innerText = `@${tg.initDataUnsafe.user.username}`;
+    }
 
-// --- ПРОВЕРКА РЕФЕРАЛОВ (БОНУС 2500) ---
-const urlParams = new URLSearchParams(window.location.search);
-const referrerId = urlParams.get('ref');
-if (referrerId && !localStorage.getItem('ref_bonus')) {
-    score += 2500;
-    localStorage.setItem('ref_bonus', 'true');
-    tg.showAlert(`🎁 You were invited by user ${referrerId}! +2500 ICE`);
-}
+    console.log("Connecting to Firebase...");
+    
+    // Ссылка на данные конкретного юзера в базе
+    const userRef = db.ref('users/' + userId);
 
-// ПОКАЗЫВАЕМ ЮЗЕРНЕЙМ
-if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
-    usernameEl.innerText = `@${tg.initDataUnsafe.user.username}`;
-}
-
-// Обновляем экран при запуске
-updateUI();
-renderShop();
-
-// --- ОБРАБОТКА КЛИКА (ТАПА) ---
-clickBtn.addEventListener('click', (e) => {
-    if (energy >= clickPower) {
-        // Логика
-        score += clickPower;
-        energy -= clickPower;
+    // Читаем данные из облака
+    userRef.once('value').then((snapshot) => {
+        const data = snapshot.val();
         
-        // Вибрация
+        if (data) {
+            // ДАННЫЕ НАЙДЕНЫ (Старый игрок)
+            console.log("Data loaded:", data);
+            state = { ...state, ...data }; // Объединяем, чтобы не потерять новые поля, если добавим их позже
+            
+            // --- РАСЧЕТ ОФФЛАЙН ЭНЕРГИИ ---
+            const now = Date.now();
+            const lastTime = state.lastLogout || now;
+            const timeDiff = Math.floor((now - lastTime) / 1000); // Секунды, которые нас не было
+            
+            if (timeDiff > 10) { // Если отсутствовали больше 10 секунд
+                // Восстанавливаем энергию
+                const recovered = timeDiff; 
+                state.energy = Math.min(state.energy + recovered, maxEnergy);
+                
+                // Начисляем пассивный доход (максимум за 3 часа отсутствия)
+                if (state.profitPerSec > 0) {
+                    const profitSeconds = Math.min(timeDiff, 3 * 3600);
+                    const earned = profitSeconds * state.profitPerSec;
+                    if (earned > 0) {
+                        state.score += earned;
+                        tg.showAlert(`Welcome back! 🌙 You mined ${Math.floor(earned)} ICE while sleeping.`);
+                    }
+                }
+            }
+        } else {
+            // ДАННЫХ НЕТ (Новый игрок)
+            console.log("New user registered");
+            checkReferral(); // Проверяем, пригласил ли кто-то
+        }
+        
+        // Убираем экран загрузки и запускаем игру
+        els.loading.style.display = 'none';
+        updateUI();
+        renderShop();
+        loadFriends(); // Загружаем список друзей
+        startAutoSave(); // Включаем автосохранение
+    }).catch(error => {
+        console.error("Firebase Error:", error);
+        tg.showAlert("Connection Error. Please restart.");
+        els.loading.innerText = "Error loading data.";
+    });
+}
+
+// --- ПРОВЕРКА ПРИГЛАШЕНИЯ (REFERRAL) ---
+function checkReferral() {
+    const urlParams = new URLSearchParams(window.location.search);
+    const referrerId = urlParams.get('ref');
+    
+    // Если есть ID пригласившего и это не мы сами
+    if (referrerId && referrerId !== userId) {
+        state.score += 2500;
+        tg.showAlert(`🎁 Invited by user ID ${referrerId}! You got +2500 ICE.`);
+        
+        // Записываем нас в список друзей к тому, кто пригласил
+        const refLink = db.ref('users/' + referrerId + '/referrals');
+        const myName = tg.initDataUnsafe?.user?.first_name || "Unknown Player";
+        refLink.push({ id: userId, name: myName });
+    }
+}
+
+// --- СПИСОК ДРУЗЕЙ ---
+function loadFriends() {
+    const myRefs = db.ref('users/' + userId + '/referrals');
+    myRefs.on('value', (snapshot) => {
+        const data = snapshot.val();
+        els.friendsList.innerHTML = ''; // Очищаем список
+        
+        if (data) {
+            Object.values(data).forEach(friend => {
+                const div = document.createElement('div');
+                div.style.padding = "10px";
+                div.style.borderBottom = "1px solid rgba(255,255,255,0.1)";
+                div.innerHTML = `👤 <b>${friend.name}</b> <span style="color:#00ff88; float:right;">+2500 🧊</span>`;
+                els.friendsList.appendChild(div);
+            });
+        } else {
+            els.friendsList.innerHTML = '<div class="empty-state">No friends yet 😢</div>';
+        }
+    });
+}
+
+// --- СОХРАНЕНИЕ В ОБЛАКО ---
+function saveToCloud() {
+    state.lastLogout = Date.now();
+    // Сохраняем состояние в папку users/ID
+    db.ref('users/' + userId).update(state);
+}
+
+function startAutoSave() {
+    // Сохраняем каждые 5 секунд
+    setInterval(saveToCloud, 5000);
+    
+    // Пытаемся сохранить при закрытии
+    window.addEventListener('beforeunload', () => {
+        saveToCloud();
+    });
+}
+
+// --- КЛИКИ И ГЕЙМПЛЕЙ ---
+document.getElementById('click-btn').addEventListener('click', (e) => {
+    if (state.energy >= state.clickPower) {
+        state.score += state.clickPower;
+        state.energy -= state.clickPower;
+        
         if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
         
-        // Звук клика (если музыка включена)
         if (isMusicPlaying) {
-            const soundClone = hitSound.cloneNode();
-            soundClone.play();
+             const soundClone = hitSound.cloneNode();
+             soundClone.play();
         }
 
         updateUI();
-        
-        // Анимация цифр
-        const x = e.clientX || window.innerWidth / 2;
-        const y = e.clientY || window.innerHeight / 2;
-        showFloatingText(x, y, `+${clickPower}`);
+        showFloatingText(e.clientX, e.clientY, `+${state.clickPower}`);
     }
 });
 
-// --- НАВИГАЦИЯ ПО ВКЛАДКАМ ---
-window.switchScreen = function(screenName) {
-    // Скрываем все экраны
-    for (let key in screens) {
-        screens[key].classList.remove('active');
-        btns[key].classList.remove('active');
-    }
-    // Показываем нужный
-    screens[screenName].classList.add('active');
-    btns[screenName].classList.add('active');
-}
-
-// --- ПРИГЛАШЕНИЕ ДРУГА ---
-window.inviteFriend = function() {
-    const myId = tg.initDataUnsafe?.user?.id;
-    if (!myId) {
-        tg.showAlert("Play from Telegram to invite friends!");
-        return;
-    }
-    const inviteLink = `https://t.me/IcebergGame_bot?start=${myId}`;
-    const text = `Join me in Iceberg! ❄️ Mining Bitcoin on ice. Get +2500 ICE bonus!`;
-    const url = `https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent(text)}`;
-    tg.openTelegramLink(url);
-}
-
-// --- УПРАВЛЕНИЕ МУЗЫКОЙ ---
-btnMusic.addEventListener('click', () => {
-    isMusicPlaying = !isMusicPlaying;
+// Таймер (восстановление энергии и доход раз в секунду)
+setInterval(() => {
+    let changed = false;
     
-    if (isMusicPlaying) {
-        bgMusic.play().catch(e => console.log("Audio play failed:", e));
-        btnMusic.innerText = "🎵"; // Значок ноты (играет)
-        btnMusic.style.background = "rgba(0, 255, 136, 0.2)"; // Зеленоватый фон
-    } else {
-        bgMusic.pause();
-        btnMusic.innerText = "🔇"; // Значок выкл
-        btnMusic.style.background = "rgba(255, 255, 255, 0.1)";
+    if (state.profitPerSec > 0) {
+        state.score += state.profitPerSec;
+        changed = true;
     }
-});
+    
+    if (state.energy < maxEnergy) {
+        state.energy++;
+        changed = true;
+    }
+    
+    if (changed) updateUI();
+}, 1000);
 
-// --- МАГАЗИН: ОТРИСОВКА ---
+// --- ИНТЕРФЕЙС (UI) ---
+function updateUI() {
+    els.score.innerText = Math.floor(state.score).toLocaleString();
+    els.income.innerText = state.profitPerSec;
+    els.energyVal.innerText = `${Math.floor(state.energy)}/${maxEnergy}`;
+    els.energyFill.style.width = `${(state.energy / maxEnergy) * 100}%`;
+
+    // Уровни
+    let currentLevel = levels[0];
+    let nextLevel = levels[1];
+    for (let i = 0; i < levels.length; i++) {
+        if (state.score >= levels[i].min) {
+            currentLevel = levels[i];
+            nextLevel = levels[i + 1];
+        }
+    }
+    document.getElementById('level-name').innerText = currentLevel.name;
+    
+    if (nextLevel) {
+        const range = nextLevel.min - currentLevel.min;
+        const progress = state.score - currentLevel.min;
+        document.getElementById('level-fill').style.width = `${(progress / range) * 100}%`;
+    } else {
+        document.getElementById('level-fill').style.width = '100%';
+    }
+}
+
+// --- МАГАЗИН ---
 function renderShop() {
-    shopListEl.innerHTML = '';
+    els.shopList.innerHTML = '';
     upgrades.forEach(item => {
-        const count = ownedUpgrades[item.id] || 0;
-        // Цена растет с каждой покупкой: цена * 1.5 ^ кол-во
+        const count = state.ownedUpgrades[item.id] || 0;
         const currentCost = Math.floor(item.cost * Math.pow(1.5, count));
         
         const div = document.createElement('div');
@@ -170,99 +275,70 @@ function renderShop() {
             </div>
             <button class="buy-btn" onclick="buyUpgrade('${item.id}')" id="btn-${item.id}">Buy</button>
         `;
-        shopListEl.appendChild(div);
+        els.shopList.appendChild(div);
     });
     checkAffordable();
 }
 
-// --- МАГАЗИН: ПОКУПКА ---
 window.buyUpgrade = function(id) {
     const item = upgrades.find(u => u.id === id);
-    const count = ownedUpgrades[id] || 0;
+    const count = state.ownedUpgrades[id] || 0;
     const currentCost = Math.floor(item.cost * Math.pow(1.5, count));
     
-    if (score >= currentCost) {
-        score -= currentCost;
-        ownedUpgrades[id]++;
+    if (state.score >= currentCost) {
+        state.score -= currentCost;
+        state.ownedUpgrades[id]++;
         
-        if (item.type === 'click') clickPower += item.bonus;
-        if (item.type === 'auto') profitPerSec += item.bonus;
+        if (item.type === 'click') state.clickPower += item.bonus;
+        if (item.type === 'auto') state.profitPerSec += item.bonus;
         
         if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
         
         updateUI();
         renderShop();
+        saveToCloud(); // Сохраняем сразу, чтобы не потерять покупку
     }
 };
 
-// Проверяем, на что хватает денег (включаем/выключаем кнопки)
 function checkAffordable() {
     upgrades.forEach(item => {
-        const count = ownedUpgrades[item.id] || 0;
+        const count = state.ownedUpgrades[item.id] || 0;
         const currentCost = Math.floor(item.cost * Math.pow(1.5, count));
         const btn = document.getElementById(`btn-${item.id}`);
-        if (btn) btn.disabled = score < currentCost;
+        if (btn) btn.disabled = state.score < currentCost;
     });
 }
 
-// --- ГЛАВНЫЙ ЦИКЛ (1 раз в секунду) ---
-setInterval(() => {
-    // Начисляем пассивный доход
-    if (profitPerSec > 0) {
-        score += profitPerSec;
-        updateUI();
+// --- НАВИГАЦИЯ И МУЗЫКА ---
+window.switchScreen = function(name) {
+    for (let k in els.screens) {
+        els.screens[k].classList.remove('active');
+        els.btns[k].classList.remove('active');
     }
-    // Восстанавливаем энергию
-    if (energy < maxEnergy) {
-        energy++;
-        updateUI();
-    }
-    checkAffordable();
-}, 1000);
-
-// --- СОХРАНЕНИЕ (1 раз в 5 секунд) ---
-setInterval(() => {
-    const save = {
-        score: score,
-        energy: energy,
-        profitPerSec: profitPerSec,
-        clickPower: clickPower,
-        owned: ownedUpgrades
-    };
-    localStorage.setItem('iceberg_save', JSON.stringify(save));
-}, 5000);
-
-// --- ОБНОВЛЕНИЕ ИНТЕРФЕЙСА ---
-function updateUI() {
-    scoreEl.innerText = Math.floor(score).toLocaleString();
-    incomeEl.innerText = profitPerSec;
-    energyValEl.innerText = `${Math.floor(energy)}/${maxEnergy}`;
-    energyFillEl.style.width = `${(energy / maxEnergy) * 100}%`;
-
-    // Расчет уровня
-    let currentLevel = levels[0];
-    let nextLevel = levels[1];
-    
-    for (let i = 0; i < levels.length; i++) {
-        if (score >= levels[i].min) {
-            currentLevel = levels[i];
-            nextLevel = levels[i + 1];
-        }
-    }
-    
-    document.getElementById('level-name').innerText = currentLevel.name;
-    
-    // Полоска прогресса уровня
-    if (nextLevel) {
-        const range = nextLevel.min - currentLevel.min;
-        const progress = score - currentLevel.min;
-        document.getElementById('level-fill').style.width = `${(progress / range) * 100}%`;
-    } else {
-        document.getElementById('level-fill').style.width = '100%';
-    }
+    els.screens[name].classList.add('active');
+    els.btns[name].classList.add('active');
 }
 
-// Анимация всплывающих цифр
+window.inviteFriend = function() {
+    const inviteLink = `https://t.me/IcebergGame_bot?start=${userId}`;
+    const text = `Join me in Iceberg! ❄️ Mining Bitcoin on ice. Get +2500 ICE bonus!`;
+    const url = `https://t.me/share/url?url=${encodeURIComponent(inviteLink)}&text=${encodeURIComponent(text)}`;
+    tg.openTelegramLink(url);
+}
+
+els.music.addEventListener('click', () => {
+    isMusicPlaying = !isMusicPlaying;
+    if (isMusicPlaying) {
+        bgMusic.play().catch(e => console.log(e));
+        els.music.innerText = "🎵";
+        els.music.style.background = "rgba(0, 255, 136, 0.2)";
+    } else {
+        bgMusic.pause();
+        els.music.innerText = "🔇";
+        els.music.style.background = "rgba(255, 255, 255, 0.1)";
+    }
+});
+
 function showFloatingText(x, y, text) {
     const el = document.createElement('div');
     el.innerText = text;
@@ -272,3 +348,6 @@ function showFloatingText(x, y, text) {
     document.body.appendChild(el);
     setTimeout(() => el.remove(), 1000);
 }
+
+// ЗАПУСК ИГРЫ
+initGame();
