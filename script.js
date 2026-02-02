@@ -1,6 +1,10 @@
 const tg = window.Telegram.WebApp;
 tg.expand();
 
+// ССЫЛКА НА ТВОЙ СЕРВЕР (Бот)
+// Бот живет тут, значит и база тут
+const API_URL = "https://iceberg-game.onrender.com";
+
 // --- ЗВУКИ ---
 const bgMusic = new Audio('music.mp3');
 bgMusic.loop = true; bgMusic.volume = 0.3;
@@ -10,19 +14,19 @@ let isMusicPlaying = false;
 
 // --- ДАННЫЕ ИГРОКА ---
 let userId = "guest";
+let firstName = "Miner";
 if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
     userId = tg.initDataUnsafe.user.id.toString();
+    firstName = tg.initDataUnsafe.user.first_name;
 }
 
-// Дефолтное состояние (для новичков)
 let state = {
     score: 0,
     energy: 1000,
     profitPerSec: 0,
     clickPower: 1,
     ownedUpgrades: { cursor: 0, worker: 0, drill: 0 },
-    lastLogout: Date.now(),
-    referrals: [] // Список друзей будем хранить тут
+    lastLogout: Date.now()
 };
 
 const maxEnergy = 1000;
@@ -40,7 +44,6 @@ const upgrades = [
     { id: 'drill', name: 'Ice Drill', type: 'auto', cost: 2000, bonus: 5, desc: '+5 🧊 / sec' }
 ];
 
-// UI Элементы
 const els = {
     score: document.getElementById('score'),
     income: document.getElementById('income-val'),
@@ -50,35 +53,27 @@ const els = {
     shopList: document.getElementById('shop-list'),
     loading: document.getElementById('loading-screen'),
     music: document.getElementById('btn-music'),
+    leaderboardList: document.getElementById('leaderboard-list'),
     screens: {
         mine: document.getElementById('game-screen'),
         shop: document.getElementById('shop-screen'),
-        friends: document.getElementById('friends-screen')
+        friends: document.getElementById('friends-screen'),
+        leaders: document.getElementById('leaders-screen')
     },
     btns: {
         mine: document.getElementById('btn-mine'),
         shop: document.getElementById('btn-shop'),
-        friends: document.getElementById('btn-friends')
-    },
-    friendsList: document.getElementById('friends-list-container')
+        friends: document.getElementById('btn-friends'),
+        leaders: document.getElementById('btn-leaders')
+    }
 };
 
-// --- ЗАПУСК ИГРЫ (CloudStorage) ---
+// --- ЗАПУСК ---
 function initGame() {
-    if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
-        if(els.username) els.username.innerText = `@${tg.initDataUnsafe.user.username}`;
-    }
+    if(els.username) els.username.innerText = `@${tg.initDataUnsafe?.user?.username || 'user'}`;
 
-    console.log("Loading from Telegram Cloud...");
-
-    // Читаем данные из облака Телеграма
     tg.CloudStorage.getItem('iceberg_data', (err, value) => {
-        if (err) {
-            tg.showAlert("Storage Error: " + err);
-        }
-        
         if (value) {
-            // Если данные есть - загружаем
             try {
                 const cloudData = JSON.parse(value);
                 state = { ...state, ...cloudData };
@@ -93,81 +88,107 @@ function initGame() {
                     state.energy = Math.min(state.energy + recovered, maxEnergy);
                     
                     if (state.profitPerSec > 0) {
-                        const profitSeconds = Math.min(timeDiff, 3 * 3600); // Макс 3 часа
-                        const earned = profitSeconds * state.profitPerSec;
+                        const earned = Math.min(timeDiff, 3 * 3600) * state.profitPerSec;
                         if (earned > 0) {
                             state.score += earned;
-                            tg.showAlert(`Welcome back! 🌙 You mined ${Math.floor(earned)} ICE while sleeping.`);
+                            tg.showAlert(`Welcome back! 🌙 +${Math.floor(earned)} ICE`);
                         }
                     }
                 }
-            } catch (e) {
-                console.error("Parse error", e);
-            }
+            } catch (e) { console.error(e); }
         } else {
-            // Если данных нет - это новый игрок
-            console.log("New user");
             checkReferral();
         }
 
-        // Запуск
         if(els.loading) els.loading.style.display = 'none';
         updateUI();
         renderShop();
-        renderFriends();
         startAutoSave();
+        
+        // Отправляем очки на сервер при запуске, чтобы попасть в рейтинг
+        sendScoreToServer();
     });
+}
+
+// --- СЕРВЕРНАЯ ЧАСТЬ (РЕЙТИНГ) ---
+function sendScoreToServer() {
+    // Отправляем данные на bot.js
+    fetch(`${API_URL}/score`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            id: userId,
+            name: firstName,
+            score: Math.floor(state.score)
+        })
+    }).catch(e => console.log("Server sync failed (offline?)"));
+}
+
+window.refreshLeaderboard = function() {
+    if(els.leaderboardList) els.leaderboardList.innerHTML = '<div class="empty-state">Loading...</div>';
+    
+    fetch(`${API_URL}/leaderboard`)
+        .then(res => res.json())
+        .then(data => {
+            if(!els.leaderboardList) return;
+            els.leaderboardList.innerHTML = '';
+            
+            if (data.length === 0) {
+                els.leaderboardList.innerHTML = '<div class="empty-state">No records yet. Be the first!</div>';
+                return;
+            }
+
+            data.forEach((player, index) => {
+                const isMe = player.id === userId;
+                const div = document.createElement('div');
+                div.className = 'shop-item'; // Используем тот же стиль, что и в магазине
+                div.style.border = isMe ? '1px solid #00ff88' : '1px solid rgba(255,255,255,0.1)';
+                
+                let medal = '';
+                if (index === 0) medal = '🥇';
+                else if (index === 1) medal = '🥈';
+                else if (index === 2) medal = '🥉';
+                else medal = `#${index + 1}`;
+
+                div.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; width:100%; align-items:center;">
+                        <span style="font-weight:bold; font-size:16px; width: 40px;">${medal}</span>
+                        <span style="flex-grow:1; text-align:left; color:${isMe ? '#00ff88' : 'white'}">
+                            ${player.name} ${isMe ? '(You)' : ''}
+                        </span>
+                        <span style="font-weight:bold; color:#ffd700;">${player.score.toLocaleString()} 🧊</span>
+                    </div>
+                `;
+                els.leaderboardList.appendChild(div);
+            });
+        })
+        .catch(e => {
+            if(els.leaderboardList) els.leaderboardList.innerHTML = '<div class="empty-state" style="color:red">Server Error. Check Internet.</div>';
+        });
 }
 
 // --- СОХРАНЕНИЕ ---
 function saveGame() {
     state.lastLogout = Date.now();
-    // Сохраняем строку JSON в ключ 'iceberg_data'
-    tg.CloudStorage.setItem('iceberg_data', JSON.stringify(state), (err, saved) => {
-        if (err) console.log("Save error:", err);
-    });
+    tg.CloudStorage.setItem('iceberg_data', JSON.stringify(state));
+    // Периодически отправляем очки в общий рейтинг
+    sendScoreToServer(); 
 }
 
 function startAutoSave() {
-    // Телеграм ограничивает частоту записи, поэтому сохраняем реже (раз в 10 сек)
-    setInterval(saveGame, 10000);
+    setInterval(saveGame, 10000); // Раз в 10 сек сохраняем и отправляем на сервер
 }
 
-// --- РЕФЕРАЛЫ (Упрощенные) ---
-/* В CloudStorage мы не можем писать данные ДРУГОМУ человеку.
-   Поэтому мы даем бонус только тому, КТО пришел.
-   А список друзей будем формировать локально (кого мы сами позвали, если бы у нас была ссылка).
-   
-   В этой версии мы даем бонус новичку. 
-*/
+// --- РЕФЕРАЛЫ ---
 function checkReferral() {
     const urlParams = new URLSearchParams(window.location.search);
     const referrerId = urlParams.get('ref');
-    
-    // Проверка: мы пришли по ссылке и мы еще не получали бонус?
-    // Мы используем localStorage как метку "я уже получал бонус" на этом устройстве,
-    // чтобы не абузили.
     if (referrerId && referrerId !== userId && !localStorage.getItem('bonus_received')) {
         state.score += 2500;
         localStorage.setItem('bonus_received', 'true');
-        tg.showAlert(`🎁 Invited by ID ${referrerId}! You got +2500 ICE.`);
+        tg.showAlert(`🎁 Invited by ID ${referrerId}! +2500 ICE.`);
         saveGame();
     }
-}
-
-function renderFriends() {
-    if(!els.friendsList) return;
-    
-    // Так как CloudStorage не позволяет видеть чужие данные,
-    // мы покажем заглушку или счетчик.
-    // В будущем для полноценного списка друзей понадобится сервер на Yandex Cloud.
-    
-    els.friendsList.innerHTML = `
-        <div style="text-align:center; padding: 20px; color: #888;">
-            <p>Cloud Sync Active ✅</p>
-            <p style="font-size: 12px;">Invites work, but friend list is temporarily hidden in Cloud Mode.</p>
-        </div>
-    `;
 }
 
 // --- ГЕЙМПЛЕЙ ---
@@ -252,7 +273,7 @@ window.buyUpgrade = function(id) {
         if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
         updateUI();
         renderShop();
-        saveGame(); // Сохраняем сразу
+        saveGame();
     }
 };
 
@@ -272,6 +293,11 @@ window.switchScreen = function(name) {
     }
     if(els.screens[name]) els.screens[name].classList.add('active');
     if(els.btns[name]) els.btns[name].classList.add('active');
+    
+    // Если перешли на экран лидеров - обновим его
+    if (name === 'leaders') {
+        refreshLeaderboard();
+    }
 }
 
 window.inviteFriend = function() {
