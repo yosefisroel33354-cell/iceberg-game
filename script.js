@@ -1,10 +1,11 @@
 const tg = window.Telegram.WebApp;
 tg.expand();
 
-// --- НАСТРОЙКИ FIREBASE (ТВОИ КЛЮЧИ) ---
+// --- НАСТРОЙКИ FIREBASE ---
 const firebaseConfig = {
   apiKey: "AIzaSyBw5UDwHAF9DiRmyabYdZoTg-TyxNleFdc",
   authDomain: "iceberg-game.firebaseapp.com",
+  // ВОТ ТВОЯ ССЫЛКА, Я ЕЕ ВСТАВИЛ:
   databaseURL: "https://iceberg-game-default-rtdb.europe-west1.firebasedatabase.app",
   projectId: "iceberg-game",
   storageBucket: "iceberg-game.firebasestorage.app",
@@ -12,7 +13,7 @@ const firebaseConfig = {
   appId: "1:292713776668:web:e57c2d40089b1a92a781d9"
 };
 
-// Инициализация Firebase (через подключенные в HTML скрипты)
+// Инициализация Firebase
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
@@ -32,7 +33,7 @@ if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
     userId = tg.initDataUnsafe.user.id.toString();
 }
 
-// Начальное состояние (если игрок новый)
+// Начальное состояние
 let state = {
     score: 0,
     energy: 1000,
@@ -60,7 +61,7 @@ const upgrades = [
     { id: 'drill', name: 'Ice Drill', type: 'auto', cost: 2000, bonus: 5, desc: '+5 🧊 / sec' }
 ];
 
-// ССЫЛКИ НА HTML ЭЛЕМЕНТЫ
+// ССЫЛКИ НА ЭЛЕМЕНТЫ
 const els = {
     score: document.getElementById('score'),
     income: document.getElementById('income-val'),
@@ -83,7 +84,7 @@ const els = {
     friendsList: document.getElementById('friends-list-container')
 };
 
-// --- ГЛАВНАЯ ФУНКЦИЯ ЗАПУСКА ---
+// --- ЗАПУСК ---
 function initGame() {
     if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
         els.username.innerText = `@${tg.initDataUnsafe.user.username}`;
@@ -91,29 +92,25 @@ function initGame() {
 
     console.log("Connecting to Firebase...");
     
-    // Ссылка на данные конкретного юзера в базе
     const userRef = db.ref('users/' + userId);
 
-    // Читаем данные из облака
     userRef.once('value').then((snapshot) => {
         const data = snapshot.val();
         
         if (data) {
-            // ДАННЫЕ НАЙДЕНЫ (Старый игрок)
+            // Данные есть
             console.log("Data loaded:", data);
-            state = { ...state, ...data }; // Объединяем, чтобы не потерять новые поля, если добавим их позже
+            state = { ...state, ...data };
             
-            // --- РАСЧЕТ ОФФЛАЙН ЭНЕРГИИ ---
+            // Оффлайн доход и энергия
             const now = Date.now();
             const lastTime = state.lastLogout || now;
-            const timeDiff = Math.floor((now - lastTime) / 1000); // Секунды, которые нас не было
+            const timeDiff = Math.floor((now - lastTime) / 1000);
             
-            if (timeDiff > 10) { // Если отсутствовали больше 10 секунд
-                // Восстанавливаем энергию
+            if (timeDiff > 10) { 
                 const recovered = timeDiff; 
                 state.energy = Math.min(state.energy + recovered, maxEnergy);
                 
-                // Начисляем пассивный доход (максимум за 3 часа отсутствия)
                 if (state.profitPerSec > 0) {
                     const profitSeconds = Math.min(timeDiff, 3 * 3600);
                     const earned = profitSeconds * state.profitPerSec;
@@ -124,48 +121,43 @@ function initGame() {
                 }
             }
         } else {
-            // ДАННЫХ НЕТ (Новый игрок)
+            // Новый игрок
             console.log("New user registered");
-            checkReferral(); // Проверяем, пригласил ли кто-то
+            checkReferral();
         }
         
-        // Убираем экран загрузки и запускаем игру
         els.loading.style.display = 'none';
         updateUI();
         renderShop();
-        loadFriends(); // Загружаем список друзей
-        startAutoSave(); // Включаем автосохранение
+        loadFriends();
+        startAutoSave();
     }).catch(error => {
         console.error("Firebase Error:", error);
-        tg.showAlert("Connection Error. Please restart.");
-        els.loading.innerText = "Error loading data.";
+        els.loading.innerText = "Error loading data. Check console.";
     });
 }
 
-// --- ПРОВЕРКА ПРИГЛАШЕНИЯ (REFERRAL) ---
+// --- РЕФЕРАЛЫ ---
 function checkReferral() {
     const urlParams = new URLSearchParams(window.location.search);
     const referrerId = urlParams.get('ref');
     
-    // Если есть ID пригласившего и это не мы сами
     if (referrerId && referrerId !== userId) {
         state.score += 2500;
-        tg.showAlert(`🎁 Invited by user ID ${referrerId}! You got +2500 ICE.`);
+        tg.showAlert(`🎁 Invited by user ID ${referrerId}! +2500 ICE.`);
         
-        // Записываем нас в список друзей к тому, кто пригласил
         const refLink = db.ref('users/' + referrerId + '/referrals');
         const myName = tg.initDataUnsafe?.user?.first_name || "Unknown Player";
         refLink.push({ id: userId, name: myName });
     }
 }
 
-// --- СПИСОК ДРУЗЕЙ ---
+// --- ДРУЗЬЯ ---
 function loadFriends() {
     const myRefs = db.ref('users/' + userId + '/referrals');
     myRefs.on('value', (snapshot) => {
         const data = snapshot.val();
-        els.friendsList.innerHTML = ''; // Очищаем список
-        
+        els.friendsList.innerHTML = '';
         if (data) {
             Object.values(data).forEach(friend => {
                 const div = document.createElement('div');
@@ -180,31 +172,24 @@ function loadFriends() {
     });
 }
 
-// --- СОХРАНЕНИЕ В ОБЛАКО ---
+// --- СОХРАНЕНИЕ ---
 function saveToCloud() {
     state.lastLogout = Date.now();
-    // Сохраняем состояние в папку users/ID
     db.ref('users/' + userId).update(state);
 }
 
 function startAutoSave() {
-    // Сохраняем каждые 5 секунд
     setInterval(saveToCloud, 5000);
-    
-    // Пытаемся сохранить при закрытии
-    window.addEventListener('beforeunload', () => {
-        saveToCloud();
-    });
+    window.addEventListener('beforeunload', () => { saveToCloud(); });
 }
 
-// --- КЛИКИ И ГЕЙМПЛЕЙ ---
+// --- ГЕЙМПЛЕЙ ---
 document.getElementById('click-btn').addEventListener('click', (e) => {
     if (state.energy >= state.clickPower) {
         state.score += state.clickPower;
         state.energy -= state.clickPower;
         
         if (tg.HapticFeedback) tg.HapticFeedback.impactOccurred('medium');
-        
         if (isMusicPlaying) {
              const soundClone = hitSound.cloneNode();
              soundClone.play();
@@ -215,38 +200,24 @@ document.getElementById('click-btn').addEventListener('click', (e) => {
     }
 });
 
-// Таймер (восстановление энергии и доход раз в секунду)
 setInterval(() => {
     let changed = false;
-    
-    if (state.profitPerSec > 0) {
-        state.score += state.profitPerSec;
-        changed = true;
-    }
-    
-    if (state.energy < maxEnergy) {
-        state.energy++;
-        changed = true;
-    }
-    
+    if (state.profitPerSec > 0) { state.score += state.profitPerSec; changed = true; }
+    if (state.energy < maxEnergy) { state.energy++; changed = true; }
     if (changed) updateUI();
 }, 1000);
 
-// --- ИНТЕРФЕЙС (UI) ---
+// --- ИНТЕРФЕЙС ---
 function updateUI() {
     els.score.innerText = Math.floor(state.score).toLocaleString();
     els.income.innerText = state.profitPerSec;
     els.energyVal.innerText = `${Math.floor(state.energy)}/${maxEnergy}`;
     els.energyFill.style.width = `${(state.energy / maxEnergy) * 100}%`;
 
-    // Уровни
     let currentLevel = levels[0];
     let nextLevel = levels[1];
     for (let i = 0; i < levels.length; i++) {
-        if (state.score >= levels[i].min) {
-            currentLevel = levels[i];
-            nextLevel = levels[i + 1];
-        }
+        if (state.score >= levels[i].min) { currentLevel = levels[i]; nextLevel = levels[i + 1]; }
     }
     document.getElementById('level-name').innerText = currentLevel.name;
     
@@ -259,13 +230,11 @@ function updateUI() {
     }
 }
 
-// --- МАГАЗИН ---
 function renderShop() {
     els.shopList.innerHTML = '';
     upgrades.forEach(item => {
         const count = state.ownedUpgrades[item.id] || 0;
         const currentCost = Math.floor(item.cost * Math.pow(1.5, count));
-        
         const div = document.createElement('div');
         div.className = 'shop-item';
         div.innerHTML = `
@@ -284,19 +253,15 @@ window.buyUpgrade = function(id) {
     const item = upgrades.find(u => u.id === id);
     const count = state.ownedUpgrades[id] || 0;
     const currentCost = Math.floor(item.cost * Math.pow(1.5, count));
-    
     if (state.score >= currentCost) {
         state.score -= currentCost;
         state.ownedUpgrades[id]++;
-        
         if (item.type === 'click') state.clickPower += item.bonus;
         if (item.type === 'auto') state.profitPerSec += item.bonus;
-        
         if (tg.HapticFeedback) tg.HapticFeedback.notificationOccurred('success');
-        
         updateUI();
         renderShop();
-        saveToCloud(); // Сохраняем сразу, чтобы не потерять покупку
+        saveToCloud();
     }
 };
 
@@ -309,7 +274,6 @@ function checkAffordable() {
     });
 }
 
-// --- НАВИГАЦИЯ И МУЗЫКА ---
 window.switchScreen = function(name) {
     for (let k in els.screens) {
         els.screens[k].classList.remove('active');
@@ -349,5 +313,4 @@ function showFloatingText(x, y, text) {
     setTimeout(() => el.remove(), 1000);
 }
 
-// ЗАПУСК ИГРЫ
 initGame();
